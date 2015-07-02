@@ -1,83 +1,64 @@
-# Docker demo image, as used on try.jupyter.org and tmpnb.org
-
-FROM jupyter/minimal
-
-MAINTAINER Jupyter Project <jupyter@googlegroups.com>
+#FROM jupyter/minimal
+FROM ubuntu:14.04
 
 USER root
 
-# Julia dependencies
-RUN apt-get install -y julia libnettle4 && apt-get clean
-
-# R dependencies that conda can't provide (X, fonts, compilers)
-RUN apt-get install -y libxrender1 fonts-dejavu gfortran gcc && apt-get clean
-
-# The Glorious Glasgow Haskell Compiler
-RUN apt-get install -y --no-install-recommends software-properties-common && apt-get clean
-RUN add-apt-repository -y ppa:hvr/ghc
-RUN sed -i s/jessie/trusty/g /etc/apt/sources.list.d/hvr-ghc-jessie.list
 RUN apt-get update
-RUN apt-get install -y cabal-install-1.22 ghc-7.8.4 happy-1.19.4 alex-3.1.3 && apt-get clean
-ENV PATH /home/jovyan/.cabal/bin:/opt/cabal/1.22/bin:/opt/ghc/7.8.4/bin:/opt/happy/1.19.4/bin:/opt/alex/3.1.3/bin:$PATH
+RUN apt-get install -y software-properties-common  build-essential
+RUN apt-get install -y git python curl bison flex g++ git libbz2-dev libreadline6-dev libx11-dev libxt-dev m4 zlib1g-dev 
+RUN apt-get install -y libfontconfig libxrender1
+RUN apt-get install -y wget
 
-# IHaskell dependencies
-RUN apt-get install -y --no-install-recommends zlib1g-dev libzmq3-dev libtinfo-dev libcairo2-dev libpango1.0-dev && apt-get clean
 
-# Ruby dependencies
-RUN apt-get install -y --no-install-recommends ruby ruby-dev libtool autoconf automake gnuplot-nox libsqlite3-dev libatlas-base-dev && apt-get clean && ln -s /usr/bin/libtoolize /usr/bin/libtool
-RUN apt-get install -y --no-install-recommends libmagick++-dev imagemagick
-RUN gem install --no-rdoc --no-ri sciruby-full
+#install LSST software as a non user
+RUN /usr/sbin/useradd --create-home --home-dir /home/maf --shell /bin/bash maf
+USER maf
+WORKDIR /home/maf
+ENV HOME /home/maf
+ENV SHELL /bin/bash
+ENV USER maf
 
-RUN mkdir /home/jovyan/communities && mkdir /home/jovyan/featured
-ADD notebooks/ /home/jovyan/
-ADD datasets/ /home/jovyan/datasets/
-RUN chown -R jovyan:jovyan /home/jovyan
+# Workaround for issue with ADD permissions
+USER root
+ADD common/profile_default /home/maf/.ipython/profile_default
+ADD common/templates/ /srv/templates/
+RUN chmod a+rX /srv/templates
+RUN chown maf:maf /home/maf -R
+USER maf
 
 EXPOSE 8888
 
-USER jovyan
-ENV HOME /home/jovyan
-ENV SHELL /bin/bash
-ENV USER jovyan
-ENV PATH $CONDA_DIR/bin:$CONDA_DIR/envs/python2/bin:$PATH
-WORKDIR $HOME
 
-USER jovyan
+# Build LSST system
+USER maf
+WORKDIR /home/maf
+RUN mkdir -p lsst
+RUN cd lsst && curl  -o newinstall.sh https://sw.lsstcorp.org/eupspkg/newinstall.sh && bash newinstall.sh -b
 
-# Python packages
-RUN conda install --yes numpy pandas scikit-learn scikit-image matplotlib scipy seaborn sympy cython patsy statsmodels cloudpickle dill numba bokeh && conda clean -yt
 
-# Now for a python2 environment
-RUN conda create -p $CONDA_DIR/envs/python2 python=2.7 ipython numpy pandas scikit-learn scikit-image matplotlib scipy seaborn sympy cython patsy statsmodels cloudpickle dill numba bokeh && conda clean -yt
-RUN $CONDA_DIR/envs/python2/bin/python $CONDA_DIR/envs/python2/bin/ipython kernelspec install-self --user
+#get updated eups
+RUN mkdir /home/maf/eups
+RUN cd /home/maf/eups; wget http://eupsforge.net/ipython-eups
+RUN cd /home/maf/eups; chmod +x ipython-eups
+ENV PATH /home/maf/eups:$PATH
 
-# IRuby
-RUN iruby register
+RUN cd /home/maf/; git clone https://github.com/LSST-nonproject/sims_maf_contrib.git
 
-# R packages
-RUN conda config --add channels r
-RUN conda install --yes r-irkernel r-plyr r-devtools r-rcurl r-dplyr r-ggplot2 r-caret rpy2 r-tidyr r-shiny r-rmarkdown r-forecast r-stringr r-rsqlite r-reshape2 r-nycflights13 r-randomforest && conda clean -yt
 
-# IJulia and Julia packages
-RUN julia -e 'Pkg.add("IJulia")'
-RUN julia -e 'Pkg.add("Gadfly")' && julia -e 'Pkg.add("RDatasets")'
+ADD startup.sh /home/maf/
+USER root
+RUN chmod +x startup.sh 
+USER maf
+ENV PATH /home/maf/eups:$PATH
 
-# IHaskell
-RUN cabal update && \
-    cabal install cpphs && \
-    cabal install gtk2hs-buildtools && \
-    cabal install ihaskell-0.6.2.0 --reorder-goals && \
-    ihaskell install && \
-    rm -fr $(echo ~/.cabal/bin/* | grep -iv ihaskell) ~/.cabal/packages ~/.cabal/share/doc ~/.cabal/setup-exe-cache ~/.cabal/logs
 
-# Extra Kernels
-RUN pip install --user bash_kernel
+#RUN /bin/bash -c "source lsst/loadLSST.bash;  printenv"
+ENV PATH /home/maf/lsst/Linux64/anaconda/2.2.0/bin:$PATH
 
-# Featured notebooks
-RUN git clone --depth 1 https://github.com/jvns/pandas-cookbook.git /home/jovyan/featured/pandas-cookbook/
+#RUN ls /home/maf/lsst/Linux64/anaconda/2.2.0/bin/
+RUN ln -s /home/maf/lsst/eups .eups/default
+RUN ls .eups/default
+RUN which ipython
 
-# Convert notebooks to the current format
-RUN find . -name '*.ipynb' -exec ipython nbconvert --to notebook {} --output {} \;
-RUN find . -name '*.ipynb' -exec ipython trust {} \;
-
-CMD ipython notebook
+CMD ipython-eups notebook
+#CMD startup.sh

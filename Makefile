@@ -1,18 +1,18 @@
 images: minimal-image demo-image
 
 minimal-image:
-	docker build -t jupyter/minimal common/
+	docker build -t jupyter/minimal
 
 demo-image: minimal-image
-	docker build -t jupyter/demo .
+	docker build -t demo .
 
 upload: images
 	docker push jupyter/minimal
-	docker push jupyter/demo
+	docker push demo
 
 super-nuke: nuke
 	-docker rmi jupyter/minimal
-	-docker rmi jupyter/demo
+	-docker rmi demo
 
 
 # Cleanup with fangs
